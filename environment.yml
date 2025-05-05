@@ -14,8 +14,9 @@ dependencies:
   - torchvision
   - conda-forge::datasets
   - conda-forge::wandb
-  - conda-forge::transformers
   - tqdm
   - pre-commit
   - pip:
     - wandb
+    - huggingface_hub[hf_xet]
+    - transformers
