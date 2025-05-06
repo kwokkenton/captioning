@@ -14,10 +14,10 @@ CLIP jointly represents images and text decriptions.
 - 2 encoders
     - Vision encoder: ViT
     - Text encoder: A 63M-parameter 12layer 512-wide model with 8 attention heads
-- Implementation on HuggingFace 
+- Implementation on HuggingFace
     -   CLIPTextModelWithProjection
     -   Outputs a sentence projection, which are pooled (EOS token) states
-    - Automatically pads with [SOS] and [BOS] tokens
+    - Automatically pads with [SOS] and [EOS] tokens. The pad token is also the [EOS] token
 
 Tokeniser should belong in the collate_fn to take advantage of the parallelisable inputs.
 
