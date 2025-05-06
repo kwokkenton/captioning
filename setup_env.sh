@@ -21,4 +21,4 @@ wandb login
 huggingface-cli login
 
 # Install captioner
-# pip install -e .
+pip install -e .

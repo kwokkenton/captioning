@@ -42,29 +42,21 @@ class Validator:
         with torch.no_grad():
             for batch_idx, batch in enumerate(tqdm(self.valid_dl)):
                 x, y = batch
-                B, N_dec = y.shape 
+                processed_images, processed_text = model.process_batch(x, y)
+                text_inputs, text_targets = get_text_inputs_and_targets(processed_text, 
+                                                                        model.eos_id, model.pad_id)
+                processed_images = processed_images.to(self.device)
+                text_inputs = text_inputs.to(self.device)
+                text_targets = text_targets.to(self.device)
 
-                x = x.to(self.device)
-                y = y.to(self.device)
-
-                input = y.clone().detach()
-
-                
-
-                input[input == self.eos_token_id] = self.pad_token_id
-                util_column = torch.full((B, 1), self.eos_token_id, 
-                                        dtype=input.dtype, 
-                                        device=input.device)
-                input = torch.cat([util_column, input], dim=1)[:, :-1]
-                
-                target = y #torch.cat([y, util_column], dim=1)
-                scores = model(x, input)
+                scores = model(processed_images, text_inputs)
 
                 # Then do the loss
-                loss = loss_fn(scores.view(B*N_dec, -1), target.view(-1))
+                loss = loss_fn(scores.view(text_targets.numel(), -1), text_targets.view(-1))
                 total_loss += loss.item()
 
-                mask = y != self.pad_token_id
+                # TODO padding
+                mask = y != model.pad_id
                 scores = scores[mask]
                 target = target[mask]
                 
@@ -149,23 +141,25 @@ class Trainer:
             # Gather data and report
             running_loss += loss.item()
             if batch_idx % batches_print_frequency == (batches_print_frequency - 1):
-                logger.info(f'Correct seq:\t{",".join([str(i) for i in text_targets[0].tolist()])}')
+                logger.info(f'Correct seq:\t{model.text_tokenizer.decode(text_targets[0])}')
                 logger.info(
-                    f'Predicted seq:\t{",".join([str(i) for i in scores.argmax(-1)[0].tolist()])}')
+                    f'Predicted seq:\t{model.text_tokenizer.decode(scores.argmax(-1)[0])}')
                 
                 # Predict first token
                 # visualise_patched_input(x_im.squeeze().cpu(), None, 16)
                 with torch.no_grad():   
-                    generated = input[0:1, :1]  
-                    for _ in range(model.seq_len_dec - generated.size(1)):
-                        test_scores = model(x[0:1], generated)    # assume outputs.logits [1, T, V]
+                    generated = torch.tensor([[model.bos_id]], dtype=torch.int32, device=self.device)  
+                    for _ in range(model.text_seq_len_max - generated.size(1)):
+                        test_scores = model(processed_images[0:1], generated)    # assume outputs.logits [1, T, V]
                         # 3) Greedy pick at last position
                         next_token = torch.argmax(test_scores[:, -1, :], dim=-1, keepdim=True)  # [1,1]
                         # 4) Append and check EOS
                         generated = torch.cat([generated, next_token], dim=1)  # [1, T+1]
-                        if next_token.item() == self.model.eos_id:
+                        if next_token.item() == model.eos_id:
                             break
-                    print(generated)       
+                    print(generated)  
+                    print()     
+                    print(model.text_tokenizer.decode(generated[0]))     
 
                     checkpoint = {
                         'model_state_dict': model.state_dict(),
@@ -176,12 +170,12 @@ class Trainer:
                         '/Users/kenton/projects/mlx-institute/transformer/checkpoints',
                         f'{datetime.now().strftime("%Y%m%d_%H%M%S")}.pth',
                     )
-                    torch.save(checkpoint, checkpoint_path)  
+                    # torch.save(checkpoint, checkpoint_path)  
                     
                 
 
                 # Calculate accuracy metric
-                accuracy = calculate_accuracy(scores, text_targets, pad_token_id=self.model.pad_id)
+                accuracy = calculate_accuracy(scores, text_targets, pad_token_id=model.pad_id)
                 ppl = torch.exp(loss)
                 # loss per batch
                 last_loss = running_loss / batches_print_frequency
@@ -296,7 +290,7 @@ if __name__ == '__main__':
     }
 
     # Config parameters
-    setup_config = {'batch_size': 2}
+    setup_config = {'batch_size': 32}
 
     # Training configs
     training_config = {
@@ -319,7 +313,7 @@ if __name__ == '__main__':
     val_ds = Flickr30k(split='val')
     
     optimiser = torch.optim.Adam(
-        model.parameters(), lr=training_config.get('lr'),
+        model.trainable_params(), lr=training_config.get('lr'),
     )
 
     # Load previously trained model
@@ -333,7 +327,8 @@ if __name__ == '__main__':
     #     map_location=device, weights_only=True,
     # )
     # model.load_state_dict(checkpoint['model_state_dict'])
-    loss_fn = torch.nn.CrossEntropyLoss(ignore_index=model.eos_id)
+    # Ignore pad id
+    loss_fn = torch.nn.CrossEntropyLoss(ignore_index=model.pad_id)
 
     trainer = Trainer(
         train_ds=train_ds,
@@ -341,17 +336,17 @@ if __name__ == '__main__':
         setup_config=setup_config,
         device=device,
     )
-    trainer.train_one_epoch(
-        model=model,
-        loss_fn=loss_fn,
-        optimiser=optimiser,
-        batches_print_frequency=training_config.get('batches_print_frequency'),
-    )
-
-    # trainer.train(
-    #     epochs=training_config.get('epochs'),
+    # trainer.train_one_epoch(
     #     model=model,
     #     loss_fn=loss_fn,
     #     optimiser=optimiser,
-    #     config=training_config,
+    #     batches_print_frequency=training_config.get('batches_print_frequency'),
     # )
+
+    trainer.train(
+        epochs=training_config.get('epochs'),
+        model=model,
+        loss_fn=loss_fn,
+        optimiser=optimiser,
+        config=training_config,
+    )

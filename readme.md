@@ -21,6 +21,11 @@ CLIP jointly represents images and text decriptions.
 
 Tokeniser should belong in the collate_fn to take advantage of the parallelisable inputs.
 
+## Setup
+```bash
+# Setup environment
+source ./setup_env.sh 
+```
 
 ## References
 

@@ -1,7 +1,10 @@
 from torch.utils.data import Dataset
 from datasets import load_dataset
 from torchvision import transforms
-
+from PIL import  ImageFile
+# Allow loading of truncated images
+# https://github.com/python-pillow/Pillow/issues/3185
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 class Flickr30k(Dataset):
     def __init__(self, split, image_transforms=None):

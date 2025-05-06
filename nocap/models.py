@@ -85,6 +85,15 @@ class ImageCaptioner(nn.Module):
         super().__init__()
         self.vision_model = model_dict.get('vision_model')
         self.text_model = model_dict.get('text_model')
+
+        self.vision_model.eval()
+        self.text_model.eval()
+
+        for param in self.vision_model.parameters():
+            param.requires_grad = False
+        for param in self.text_model.parameters():
+            param.requires_grad = False
+
         # The processors can do parellelisable inputs
         self.image_processor = model_dict.get('image_processor')
         self.text_tokenizer = model_dict.get('text_tokeniser')
@@ -98,7 +107,8 @@ class ImageCaptioner(nn.Module):
         self.num_layers = model_config.get('num_layers')  # 6
 
         # These are linked to CLIP
-        self.seq_len_max = 50 + 76
+        self.text_seq_len_max = 77
+        self.seq_len_max = 50 + self.text_seq_len_max
 
         self.bos_id, self.eos_id = self.text_tokenizer([''])['input_ids'][0]
         self.pad_id = self.bos_id
@@ -122,7 +132,7 @@ class ImageCaptioner(nn.Module):
         )
         nn.init.normal_(self.positional_encodings, std=0.02)
 
-    def forward(self, image_inputs: list, text_inputs: list) -> torch.Tensor:
+    def forward(self, image_inputs: list, text_inputs: dict) -> torch.Tensor:
         """
         image_inputs (dict): key 'pixel_values' torch.Size([B, 3, 224, 224])
 
@@ -133,7 +143,6 @@ class ImageCaptioner(nn.Module):
         B, N_image_tokens, _ = image_embeddings.shape
         text_embeddings = self.get_text_embeddings(text_inputs)
         _, N_text_tokens, _ = text_embeddings.shape
-        print(image_embeddings.shape, text_embeddings.shape)
 
         # Need a linear layer on top of both to reshape into common dimensions
         res = torch.cat(
@@ -142,7 +151,7 @@ class ImageCaptioner(nn.Module):
                 self.text_proj(text_embeddings),
             ], dim=1,
         )
-
+        # Add positional embeddings
         res = res + self.positional_encodings[:, :res.shape[1], :]
         # Causal masking for text_inputs
         causal_mask = make_causal_mask(
@@ -164,14 +173,29 @@ class ImageCaptioner(nn.Module):
             padding=True,
             return_tensors='pt',
         )
+        # Clip if longer than the longest sequence length possible
+        if text_inputs.input_ids.shape[1] > self.text_seq_len_max:
+            text_inputs['input_ids'] = text_inputs['input_ids'][:,:self.text_seq_len_max].clone()
+            text_inputs['attention_mask'] = text_inputs['attention_mask'][:,:self.text_seq_len_max].clone()
+
         return image_inputs, text_inputs
 
     def get_image_embeddings(self, vision_inputs: dict):
         # X_im is the result from the processor
         # Shape is B, N_tokens = 50, D_model = 768
-        return self.vision_model(**vision_inputs).last_hidden_state
+        if type(vision_inputs) is torch.Tensor:
+            return self.vision_model(vision_inputs).last_hidden_state
+        else:
+            return self.vision_model(**vision_inputs).last_hidden_state
 
-    def get_text_embeddings(self, text_inputs: dict):
+    def get_text_embeddings(self, text_inputs):
         # Shape is B, N_tokens, D_model = 512
         # this is also a possibility captioning_model.text_model(text_inputs.input_ids).last_hidden_state
-        return self.text_model(**text_inputs).last_hidden_state
+        if type(text_inputs) is not torch.Tensor:
+            return self.text_model.text_model.embeddings.token_embedding(text_inputs['input_ids'])
+        else:
+            return self.text_model.text_model.embeddings.token_embedding(text_inputs)
+
+
+    def trainable_params(self):
+        return filter(lambda p: p.requires_grad, self.parameters())

@@ -10,13 +10,14 @@ dependencies:
   - pandas
   - matplotlib
   - scipy
-  - pytorch
-  - torchvision
   - conda-forge::datasets
   - conda-forge::wandb
   - tqdm
   - pre-commit
+  - ipykernel
   - pip:
     - wandb
     - huggingface_hub[hf_xet]
     - transformers
+    - torch
+    - torchvision
