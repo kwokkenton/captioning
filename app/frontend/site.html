@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Image Captioner</title>
+</head>
+<body>
+  <h2>Upload Image to Get Caption</h2>
+  <input type="file" id="imageInput" accept="image/*">
+  <button onclick="uploadImage()">Submit</button>
+  <p id="captionResult"></p>
+
+  <script>
+    async function uploadImage() {
+      const input = document.getElementById('imageInput');
+      const file = input.files[0];
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch("http://localhost:8000/caption", {
+        method: "POST",
+        body: formData
+      });
+
+      const data = await response.json();
+      document.getElementById('captionResult').innerText = data.caption;
+    }
+  </script>
+</body>
+</html>

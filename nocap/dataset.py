@@ -11,6 +11,9 @@ class Flickr30k(Dataset):
     def __init__(self, split, image_transforms=None):
         super().__init__()
 
+        #  Note the HF dataset has one split only 'test'
+        # The actual splits are in a separate column
+        
         self.ds = load_dataset('nlphuji/flickr30k')
         if split not in ['test', 'train', 'val']:
             raise ValueError(

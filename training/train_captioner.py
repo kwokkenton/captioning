@@ -9,7 +9,7 @@ from tqdm import tqdm
 import wandb
 from nocap.utils import get_device, count_trainable_params, get_wandb_checkpoint_path
 from nocap.dataset import Flickr30k
-from nocap.models import get_text_inputs_and_targets, collate_fn, calculate_accuracy
+from nocap.models import get_text_inputs_and_targets, collate_fn, calculate_accuracy, model_config
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -302,12 +302,6 @@ if __name__ == '__main__':
     log_to_wandb = args.log_to_wandb
     wandb_checkpoint = args.wandb_checkpoint
 
-    # Model configs
-    model_config = {
-        'hidden_dim': 512,
-        'num_heads': 8,
-        'num_layers': 6,
-    }
 
     # Config parameters
     setup_config = {
@@ -320,7 +314,7 @@ if __name__ == '__main__':
         'project_name': 'mlx-week4-image-captioning',
         'model_name': 'transformer_captioner',
         'epochs': 25,
-        'lr': 1e-4,
+        'lr': 1e-6,
         'log_locally': False,
         'log_to_wandb': log_to_wandb,
         'batches_print_frequency': 100,

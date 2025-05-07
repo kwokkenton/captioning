@@ -12,6 +12,11 @@ clip_model_dict = {
     'text_hidden_dim': 512,
 }
 
+model_config = {
+    'hidden_dim': 512,
+    'num_heads': 8,
+    'num_layers': 6,
+}
 
 def get_text_inputs_and_targets(tokenised_text: torch.Tensor, attention_mask, target_id: int, replacement_id: int) -> tuple[dict, torch.Tensor]:
     """ processed_text is the CLIP-tokenised text

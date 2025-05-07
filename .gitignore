@@ -3,3 +3,4 @@ nocap.egg-info
 *.pyc
 wandb/*
 .DS_Store
+*.pth
