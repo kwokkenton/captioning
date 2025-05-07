@@ -1,13 +1,14 @@
-from nocap.models import clip_model_dict, ImageCaptioner, model_config
-from nocap.utils import get_device, get_wandb_checkpoint_path
+from nocap.models import ImageCaptioner
+from nocap.utils import get_wandb_checkpoint_path
 import torch
-from nocap.dataset import Flickr30k
 
 class ImageCaptionerAPI:
-    def __init__(self, model_dict, model_config, wandb_checkpoint, device):
+    def __init__(self, model_dict, model_config, wandb_checkpoint, device = None):
         checkpoint_path = get_wandb_checkpoint_path(
             wandb_checkpoint,
         )
+        if device is None:
+            device = torch.device('cpu')
 
         model = ImageCaptioner(model_dict, model_config)
         # Load the model
@@ -17,21 +18,38 @@ class ImageCaptionerAPI:
             weights_only=True,
         )
         model.load_state_dict(checkpoint['model_state_dict'])
-        return
+        self.model = model
 
     def run_inference(self, image):
+        """ Image is torch.Tensor or PIL image
+        """
         caption = None
+        # captioner.model.image_processor(val_ds[0][0], return_tensors='pt')
+        image_inputs = self.model.image_processor(
+            images=image,
+            return_tensors='pt',
+        )
+        x = image_inputs['pixel_values']
 
-        processed_images, processed_text, attention_mask = self.model.process_batch(
-                x, y,
-            )
-        generated = self.model.forward_sequential(processed_images[0:1])
-
+        # Greedy search
+        # TODO: implement beam_search
+        generated = torch.tensor(
+            [[self.model.bos_id]], dtype=torch.int32, device=x.device,
+        )
+        for _ in range(self.model.text_seq_len_max - generated.size(1)):
+            # assume outputs.logits [1, T, V]
+            test_scores = self.model.forward(x, generated)
+            # 3) Greedy pick at last position
+            next_token = torch.argmax(
+                test_scores[:, -1, :], dim=-1, keepdim=True,
+            )  # [1,1]
+            # 4) Append and check EOS
+            generated = torch.cat([generated, next_token], dim=1)  # [1, T+1]
+            if next_token.item() == self.model.eos_id:
+                break
+        
+        caption = self.model.text_tokenizer.decode(generated[0][1:-1])
         return caption
-
-captioner = ImageCaptionerAPI(clip_model_dict, 
-                model_config, 
-                'kwokkenton-individual/mlx-week4-image-captioning/transformer_captioner:v31')
-
-if __name__ == "__main__":
-    val_ds = Flickr30k(split='val')
+    
+    def __call__(self, image):
+        return self.run_inference(image)

@@ -3,9 +3,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from PIL import Image
 import io
+from nocap.api import ImageCaptionerAPI
+from nocap.models import clip_model_dict, model_config
 
-
-
+captioner = ImageCaptionerAPI(clip_model_dict, 
+                model_config, 
+                'kwokkenton-individual/mlx-week4-image-captioning/transformer_captioner:v31')
 
 app = FastAPI()
 
@@ -26,6 +29,7 @@ async def caption_image(file: UploadFile = File(...)):
 
     # TODO: Replace with actual image captioning model
     # Fake caption generation
-    caption = "A placeholder caption for the uploaded image."
+    
+    caption = captioner(image)
 
     return JSONResponse(content={"caption": caption})
