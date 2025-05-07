@@ -1,3 +1,4 @@
+import random
 from torch.utils.data import Dataset
 from datasets import load_dataset
 from torchvision import transforms
@@ -5,7 +6,7 @@ from PIL import ImageFile
 # Allow loading of truncated images
 # https://github.com/python-pillow/Pillow/issues/3185
 ImageFile.LOAD_TRUNCATED_IMAGES = True
-import random
+
 
 class Flickr30k(Dataset):
     def __init__(self, split, image_transforms=None):
@@ -13,7 +14,7 @@ class Flickr30k(Dataset):
 
         #  Note the HF dataset has one split only 'test'
         # The actual splits are in a separate column
-        
+
         self.ds = load_dataset('nlphuji/flickr30k')
         if split not in ['test', 'train', 'val']:
             raise ValueError(

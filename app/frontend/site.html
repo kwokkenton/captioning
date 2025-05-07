@@ -18,7 +18,7 @@
       const formData = new FormData();
       formData.append("file", file);
 
-      const response = await fetch("http://localhost:8000/caption", {
+      const response = await fetch("http://localhost:8001/caption", {
         method: "POST",
         body: formData
       });

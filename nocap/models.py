@@ -18,6 +18,7 @@ model_config = {
     'num_layers': 6,
 }
 
+
 def get_text_inputs_and_targets(tokenised_text: torch.Tensor, attention_mask, target_id: int, replacement_id: int) -> tuple[dict, torch.Tensor]:
     """ processed_text is the CLIP-tokenised text
     This function produces the inputs to the model and the targets for evaluation

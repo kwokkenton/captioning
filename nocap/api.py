@@ -2,8 +2,9 @@ from nocap.models import ImageCaptioner
 from nocap.utils import get_wandb_checkpoint_path
 import torch
 
+
 class ImageCaptionerAPI:
-    def __init__(self, model_dict, model_config, wandb_checkpoint, device = None):
+    def __init__(self, model_dict, model_config, wandb_checkpoint, device=None):
         checkpoint_path = get_wandb_checkpoint_path(
             wandb_checkpoint,
         )
@@ -14,7 +15,7 @@ class ImageCaptionerAPI:
         # Load the model
         checkpoint = torch.load(
             checkpoint_path,
-            map_location=device, 
+            map_location=device,
             weights_only=True,
         )
         model.load_state_dict(checkpoint['model_state_dict'])
@@ -47,9 +48,9 @@ class ImageCaptionerAPI:
             generated = torch.cat([generated, next_token], dim=1)  # [1, T+1]
             if next_token.item() == self.model.eos_id:
                 break
-        
+
         caption = self.model.text_tokenizer.decode(generated[0][1:-1])
         return caption
-    
+
     def __call__(self, image):
         return self.run_inference(image)

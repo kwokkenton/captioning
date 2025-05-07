@@ -23,3 +23,4 @@ dependencies:
     - torchvision
     - fastapi
     - uvicorn
+    - python-multipart

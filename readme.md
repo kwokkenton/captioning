@@ -42,6 +42,18 @@ source ./setup_env.sh
 python3 training/train_captioner.py --log-to-wandb --wandb_checkpoint kwokkenton-individual/mlx-week4-image-captioning/transformer_captioner:v1
 ```
 
+### Frontend
+
+```
+sudo apt install npm
+npm install tailwindcss @tailwindcss/vite
+```
+
+### Backend
+```
+uvicorn main:app --reload
+```
+
 ## References
 
 Mokady, Ron, Amir Hertz, and Amit H. Bermano. ‘ClipCap: CLIP Prefix for Image Captioning’. arXiv, 18 November 2021. https://doi.org/10.48550/arXiv.2111.09734.

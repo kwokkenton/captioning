@@ -219,7 +219,6 @@ class Trainer:
         project_name = config.get('project_name')
         model_name = config.get('model_name')
 
-
         if log_to_wandb:
             run = wandb.init(
                 entity='kwokkenton-individual',
@@ -291,17 +290,16 @@ if __name__ == '__main__':
             help='If set, enable logging to Weights & Biases',
         )
         parser.add_argument(
-            "--wandb_checkpoint", 
-            type=str, 
-            required=False, 
-            help="Wandb identifier, e.g., 'kwokkenton-individual/mlx-week2-search-engine/towers_rnn:latest'"
+            '--wandb_checkpoint',
+            type=str,
+            required=False,
+            help="Wandb identifier, e.g., 'kwokkenton-individual/mlx-week2-search-engine/towers_rnn:latest'",
         )
         return parser.parse_args()
 
     args = parse_args()
     log_to_wandb = args.log_to_wandb
     wandb_checkpoint = args.wandb_checkpoint
-
 
     # Config parameters
     setup_config = {
@@ -345,7 +343,7 @@ if __name__ == '__main__':
         # Load the model
         checkpoint = torch.load(
             checkpoint_path,
-            map_location=device, 
+            map_location=device,
             weights_only=True,
         )
         model.load_state_dict(checkpoint['model_state_dict'])
