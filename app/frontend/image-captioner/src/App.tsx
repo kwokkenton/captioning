@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import ImageDropZone from './ImageDropZone';
 import WebcamCapture from './WebcamCapture';
+import SpeechSynthesis from './SpeechSynthesis';
 
 function App() {
   // This sets the application state and the functions to change them
@@ -80,6 +81,9 @@ function App() {
           <p className="text-gray-900">{caption}</p>
         </div>
       )}
+
+        {/* Add the SpeechSynthesis component here */}
+        <SpeechSynthesis text={caption} />
     </div>
   );
 }

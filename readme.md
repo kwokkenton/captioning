@@ -1,12 +1,19 @@
 # Image Captioning with Transformers
 
-Task
-- Generate image captions
+Task: To generate captions of an image
 
-shared latent space of both vision and text
+![](media/demo.png)
+
+
+
+
 
 Use `transformers` library
 - Wrappers around pre-trained models
+
+## Method
+
+We use image embeddings from the CLIP vision transformer and a 
 
 ### CLIP
 
