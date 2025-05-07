@@ -3,7 +3,7 @@ import os
 from datetime import datetime
 
 import torch
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 import wandb
@@ -26,42 +26,46 @@ def calculate_accuracy(scores, y, pad_token_id=None):
         scores = scores[mask]
         y = y[mask]
     correct = torch.sum(scores.argmax(dim=-1) == y)
-    return correct/y.numel()
+    return correct/y.numel(), correct
 
 class Validator:
     def __init__(self, validation_dataloader: DataLoader, device: torch.device):
         self.valid_dl = validation_dataloader
         self.device = device
-        # self.pad_token_id = validation_dataloader.dataset.pad_token_id
-        # self.eos_token_id = validation_dataloader.dataset.eos_token_id
 
     def validate(self, model: torch.nn.Module, loss_fn: torch.nn.Module):
         total_correct = 0
         count = 0
         total_loss = 0.
+
         with torch.no_grad():
             for batch_idx, batch in enumerate(tqdm(self.valid_dl)):
                 x, y = batch
-                processed_images, processed_text = model.process_batch(x, y)
-                text_inputs, text_targets = get_text_inputs_and_targets(processed_text, 
-                                                                        model.eos_id, model.pad_id)
+
+                # THIS IS EXACTLY THE SAME CODE AS THE FORWARD -----------------
+
+                processed_images, processed_text, attention_mask = model.process_batch(x, y)
+                text_inputs, input_attention_mask, text_targets = get_text_inputs_and_targets(processed_text, 
+                                                                        attention_mask,
+                                                                        model.eos_id, 
+                                                                        model.pad_id)
                 processed_images = processed_images.to(self.device)
                 text_inputs = text_inputs.to(self.device)
                 text_targets = text_targets.to(self.device)
-
-                scores = model(processed_images, text_inputs)
-
+                input_attention_mask = input_attention_mask.to(self.device)
+                # Scores are (unnormalised) logits
+                scores = model(processed_images, text_inputs, input_attention_mask)
                 # Then do the loss
                 loss = loss_fn(scores.view(text_targets.numel(), -1), text_targets.view(-1))
+                #-------------------------------------------------------------------
+
                 total_loss += loss.item()
 
-                # TODO padding
-                mask = y != model.pad_id
-                scores = scores[mask]
-                target = target[mask]
-                
-                total_correct += torch.sum(scores.argmax(dim=-1) == target)
-                count += torch.numel(target)
+                # SAME CODE AS IN PER BATCH EVALUATION  -----------------
+                _, correct = calculate_accuracy(scores, text_targets, pad_token_id=model.pad_id)
+                #-------------------------------------------------------------------
+                total_correct += correct
+                count += torch.numel(text_targets)
 
         return total_loss / len(self.valid_dl), total_correct / count
 
@@ -116,78 +120,70 @@ class Trainer:
         for batch_idx, batch in enumerate(tqdm(self.train_dl)):
             # Zero your gradients for every batch!
             optimiser.zero_grad()
-            x, y = batch
             # y is a padded sequence
             # x shape B, D
-            # decoder input is indexed until the <end> token
+            x, y = batch
 
-            # Scores are (unnormalised) logits
-            processed_images, processed_text = model.process_batch(x, y)
-            text_inputs, text_targets = get_text_inputs_and_targets(processed_text, 
-                                                                    model.eos_id, model.pad_id)
-            # B, N_dec = text_targets.shape 
-
+            # CHANGE THIS-------------------------------------------------------
+            # Training forward code
+            processed_images, processed_text, attention_mask = model.process_batch(x, y)
+            text_inputs, input_attention_mask, text_targets = get_text_inputs_and_targets(processed_text, 
+                                                                    attention_mask,
+                                                                    model.eos_id, 
+                                                                    model.pad_id)
             processed_images = processed_images.to(self.device)
             text_inputs = text_inputs.to(self.device)
             text_targets = text_targets.to(self.device)
-
-            scores = model(processed_images, text_inputs)
+            input_attention_mask = input_attention_mask.to(self.device)
+            # Scores are (unnormalised) logits
+            scores = model(processed_images, text_inputs, input_attention_mask)
 
             # Then do the loss
             loss = loss_fn(scores.view(text_targets.numel(), -1), text_targets.view(-1))
+            #-------------------------------------------------------------------
             loss.backward()
             optimiser.step()
 
             # Gather data and report
             running_loss += loss.item()
             if batch_idx % batches_print_frequency == (batches_print_frequency - 1):
+
+                # CHANGE THIS---------------------------------------------------
+                # Logs and sanity checking code
                 logger.info(f'Correct seq:\t{model.text_tokenizer.decode(text_targets[0])}')
                 logger.info(
                     f'Predicted seq:\t{model.text_tokenizer.decode(scores.argmax(-1)[0])}')
                 
-                # Predict first token
-                # visualise_patched_input(x_im.squeeze().cpu(), None, 16)
                 with torch.no_grad():   
-                    generated = torch.tensor([[model.bos_id]], dtype=torch.int32, device=self.device)  
-                    for _ in range(model.text_seq_len_max - generated.size(1)):
-                        test_scores = model(processed_images[0:1], generated)    # assume outputs.logits [1, T, V]
-                        # 3) Greedy pick at last position
-                        next_token = torch.argmax(test_scores[:, -1, :], dim=-1, keepdim=True)  # [1,1]
-                        # 4) Append and check EOS
-                        generated = torch.cat([generated, next_token], dim=1)  # [1, T+1]
-                        if next_token.item() == model.eos_id:
-                            break
-                    print(generated)  
-                    print()     
-                    print(model.text_tokenizer.decode(generated[0]))     
-
-                    checkpoint = {
-                        'model_state_dict': model.state_dict(),
-                        'optimiser_state_dict': optimiser.state_dict(),
-                    }
-
-                    checkpoint_path = os.path.join(
-                        '/Users/kenton/projects/mlx-institute/transformer/checkpoints',
-                        f'{datetime.now().strftime("%Y%m%d_%H%M%S")}.pth',
-                    )
-                    # torch.save(checkpoint, checkpoint_path)  
-                    
-                
-
+                    # Predict first token
+                    generated = model.forward_sequential(processed_images[0:1])
+                    logger.info(
+                        f'Sequentially predicted seq:\t{model.text_tokenizer.decode(generated[0])}')
+  
                 # Calculate accuracy metric
-                accuracy = calculate_accuracy(scores, text_targets, pad_token_id=model.pad_id)
+                accuracy, _ = calculate_accuracy(scores, text_targets, pad_token_id=model.pad_id)
                 ppl = torch.exp(loss)
                 # loss per batch
                 last_loss = running_loss / batches_print_frequency
                 logger.info(
                     f'  For batch {batch_idx + 1}, the loss is {last_loss}, the accuracy is {accuracy}, the perplexity is {ppl}, ',
                 )
+                #-------------------------------------------------------------------
                 running_loss = 0.
+                
+                # In case you want to save every printed time
+                #    checkpoint = {
+                #     'model_state_dict': model.state_dict(),
+                #     'optimiser_state_dict': optimiser.state_dict(),
+                # }
+                # checkpoint_path = os.path.join(
+                #         '/Users/kenton/projects/mlx-institute/transformer/checkpoints',
+                #         f'{datetime.now().strftime("%Y%m%d_%H%M%S")}.pth',
+                #     )
+                #     # torch.save(checkpoint, checkpoint_path)  
 
         return last_loss, accuracy
 
-
-    
     def train(
         self,
         epochs: int,
@@ -201,8 +197,7 @@ class Trainer:
         log_to_wandb = config.get('log_to_wandb')
         log_locally = config.get('log_locally')
         checkpoint_folder = config.get(
-            'checkpoint_folder',
-            '/Users/kenton/projects/mlx-institute/transformer/checkpoints',
+            'checkpoint_folder'
         )
 
         if log_to_wandb:
@@ -299,6 +294,7 @@ if __name__ == '__main__':
         'log_locally': False,
         'log_to_wandb': log_to_wandb,
         'batches_print_frequency': 100,
+        'checkpoint_folder': 'checkpoints',
     }
 
     device = get_device()

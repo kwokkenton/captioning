@@ -8,7 +8,7 @@ from typing import List, Tuple, Dict
 
 clip_model_dict = {
     'vision_model': CLIPVisionModel.from_pretrained('openai/clip-vit-base-patch32'),
-    'text_model': CLIPTextModel.from_pretrained('openai/clip-vit-base-patch32'),
+    'text_model': CLIPTextModel.from_pretrained('openai/clip-vit-base-patch32').text_model.embeddings,
     'image_processor': AutoProcessor.from_pretrained('openai/clip-vit-base-patch32', use_fast=True),
     'text_tokeniser': AutoTokenizer.from_pretrained('openai/clip-vit-base-patch32'),
     'vision_hidden_dim': 768,
@@ -16,7 +16,7 @@ clip_model_dict = {
 }
 
 
-def get_text_inputs_and_targets(tokenised_text:Dict, target_id:int, replacement_id:int) -> Tuple[Dict, torch.Tensor]:
+def get_text_inputs_and_targets(tokenised_text:torch.Tensor, attention_mask, target_id:int, replacement_id:int) -> Tuple[Dict, torch.Tensor]:
     """ processed_text is the CLIP-tokenised text
     This function produces the inputs to the model and the targets for evaluation
     on the auto-regressive task.
@@ -24,27 +24,46 @@ def get_text_inputs_and_targets(tokenised_text:Dict, target_id:int, replacement_
     """
 
     # Want the model to predict all but the last token and so we slice until it
-    text_inputs = deepcopy(tokenised_text)
-    text_inputs['input_ids'] = text_inputs['input_ids'][:, :-1]
-    text_inputs['attention_mask'] = text_inputs['attention_mask'][:, :-1]
+    tokenised_text = deepcopy(tokenised_text)
+    text_inputs = tokenised_text[:, :-1]
+    attention_mask = deepcopy(attention_mask)[:, :-1]
 
     # Targets are all but the first token (don't predict <bos>)
     text_targets = process_padding(
-        tokenised_text['input_ids'][:, 1:], target_id, replacement_id,
+        tokenised_text[:, 1:], target_id, replacement_id,
     )
-    return text_inputs, text_targets
+    return text_inputs, attention_mask, text_targets
 
 
 def make_causal_mask(prefix_len:int, sequence_len:int, device:torch.device):
+    """ Image tokens (of prefix_len) are in the prefix, which can self attend.
+        Text tokens (of sequence_len) cannot attend to future tokens
+    """
     total_length = prefix_len + sequence_len
     square_causal_mask = torch.triu(
         torch.ones(
-            total_length, total_length, device=device,
+            total_length, total_length, device=device, dtype = torch.bool
         ), diagonal=1,
     )
     square_causal_mask[0:prefix_len, 0:prefix_len] = 0
     # mask = torch.cat([torch.ones((prefix_len, prefix_len), device=device), square_causal_mask], dim=1)
     return square_causal_mask
+
+def make_src_key_padding_mask(prefix_len, attention_mask, device:torch.device):
+    """
+    a binary mask of shape (N,S) indicating which elements within key to ignore for 
+    the purpose of attention (i.e. treat as “padding”). For unbatched query, 
+    shape should be (S). Binary and float masks are supported. For a binary 
+    mask, a True value indicates that the corresponding key value will be 
+    ignored for the purpose of attention. 
+
+    https://docs.pytorch.org/docs/stable/generated/torch.nn.MultiheadAttention.html
+    """
+    B, sequence_len = attention_mask.shape
+    attention_mask = attention_mask.to(dtype=torch.bool)
+    zeros_to_prepend = torch.zeros((B, prefix_len), dtype=torch.bool, device=device)
+    result = torch.cat((zeros_to_prepend, attention_mask), dim=1)
+    return result
 
 
 def process_padding(x: torch.Tensor, target: int, replacement:int) -> torch.Tensor:
@@ -132,7 +151,7 @@ class ImageCaptioner(nn.Module):
         )
         nn.init.normal_(self.positional_encodings, std=0.02)
 
-    def forward(self, image_inputs: list, text_inputs: dict) -> torch.Tensor:
+    def forward(self, image_inputs: torch.Tensor, text_inputs: torch.Tensor, text_attention_mask= None) -> torch.Tensor:
         """
         image_inputs (dict): key 'pixel_values' torch.Size([B, 3, 224, 224])
 
@@ -157,12 +176,20 @@ class ImageCaptioner(nn.Module):
         causal_mask = make_causal_mask(
             N_image_tokens, N_text_tokens, res.device,
         )
-        res = self.decoder(res, mask=causal_mask, src_key_padding_mask=None)
+        # If an attention mask is provided (during training)
+        if text_attention_mask is None:
+            src_key_padding_mask = None
+        else:
+            src_key_padding_mask = make_src_key_padding_mask(N_image_tokens, 
+                                                1 - text_attention_mask, 
+                                                text_attention_mask.device)
+        res = self.decoder(res, mask=causal_mask, 
+            src_key_padding_mask=src_key_padding_mask)
         # Return sequence tokens output and ignore the prefix
         out = self.language_head(res[:, N_image_tokens:])
         return out
 
-    def process_batch(self, image_inputs: list, text_inputs: list) -> tuple[dict, dict]:
+    def process_batch(self, image_inputs: list, text_inputs: list) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         # Returns dicts
         image_inputs = self.image_processor(
             images=image_inputs,
@@ -175,10 +202,14 @@ class ImageCaptioner(nn.Module):
         )
         # Clip if longer than the longest sequence length possible
         if text_inputs.input_ids.shape[1] > self.text_seq_len_max:
-            text_inputs['input_ids'] = text_inputs['input_ids'][:,:self.text_seq_len_max].clone()
-            text_inputs['attention_mask'] = text_inputs['attention_mask'][:,:self.text_seq_len_max].clone()
+            input_ids = text_inputs['input_ids'][:,:self.text_seq_len_max].clone()
+            attention_mask = text_inputs['attention_mask'][:,:self.text_seq_len_max].clone()
+        else: 
+            input_ids = text_inputs['input_ids']
+            attention_mask = text_inputs['attention_mask']
 
-        return image_inputs, text_inputs
+
+        return image_inputs['pixel_values'], input_ids, attention_mask
 
     def get_image_embeddings(self, vision_inputs: dict):
         # X_im is the result from the processor
@@ -192,10 +223,23 @@ class ImageCaptioner(nn.Module):
         # Shape is B, N_tokens, D_model = 512
         # this is also a possibility captioning_model.text_model(text_inputs.input_ids).last_hidden_state
         if type(text_inputs) is not torch.Tensor:
-            return self.text_model.text_model.embeddings.token_embedding(text_inputs['input_ids'])
+            return self.text_model.token_embedding(text_inputs['input_ids'])
         else:
-            return self.text_model.text_model.embeddings.token_embedding(text_inputs)
+            return self.text_model.token_embedding(text_inputs)
 
 
     def trainable_params(self):
         return filter(lambda p: p.requires_grad, self.parameters())
+
+    def forward_sequential(self, x: torch.Tensor):
+        # assert type(x) is torch.Tensor
+        generated = torch.tensor([[self.bos_id]], dtype=torch.int32, device=x.device)  
+        for _ in range(self.text_seq_len_max - generated.size(1)):
+            test_scores = self.forward(x, generated)    # assume outputs.logits [1, T, V]
+            # 3) Greedy pick at last position
+            next_token = torch.argmax(test_scores[:, -1, :], dim=-1, keepdim=True)  # [1,1]
+            # 4) Append and check EOS
+            generated = torch.cat([generated, next_token], dim=1)  # [1, T+1]
+            if next_token.item() == self.eos_id:
+                break
+        return generated[0]
