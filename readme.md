@@ -21,10 +21,25 @@ CLIP jointly represents images and text decriptions.
 
 Tokeniser should belong in the collate_fn to take advantage of the parallelisable inputs.
 
-## Setup
+## Deployment
+
+Want
+- Frontend: Livestream from camera on phone, fallback is just 1 image
+- Send images to FASTAPI
+- Fast API runs sequential intference
+- Sends message back
+- Phone reads out message
+
+## Setup
+
 ```bash
 # Setup environment
-source ./setup_env.sh 
+source ./setup_env.sh
+```
+
+### Training
+```
+python3 training/train_captioner.py --log-to-wandb --wandb_checkpoint kwokkenton-individual/mlx-week4-image-captioning/transformer_captioner:v1
 ```
 
 ## References

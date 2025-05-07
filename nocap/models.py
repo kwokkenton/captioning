@@ -1,10 +1,7 @@
 from torch import nn
 import torch
-
-from torch import nn
 from transformers import AutoProcessor, CLIPVisionModel, CLIPTextModel, AutoTokenizer
 from copy import deepcopy
-from typing import List, Tuple, Dict
 
 clip_model_dict = {
     'vision_model': CLIPVisionModel.from_pretrained('openai/clip-vit-base-patch32'),
@@ -16,11 +13,11 @@ clip_model_dict = {
 }
 
 
-def get_text_inputs_and_targets(tokenised_text:torch.Tensor, attention_mask, target_id:int, replacement_id:int) -> Tuple[Dict, torch.Tensor]:
+def get_text_inputs_and_targets(tokenised_text: torch.Tensor, attention_mask, target_id: int, replacement_id: int) -> tuple[dict, torch.Tensor]:
     """ processed_text is the CLIP-tokenised text
     This function produces the inputs to the model and the targets for evaluation
     on the auto-regressive task.
-    
+
     """
 
     # Want the model to predict all but the last token and so we slice until it
@@ -35,43 +32,46 @@ def get_text_inputs_and_targets(tokenised_text:torch.Tensor, attention_mask, tar
     return text_inputs, attention_mask, text_targets
 
 
-def make_causal_mask(prefix_len:int, sequence_len:int, device:torch.device):
+def make_causal_mask(prefix_len: int, sequence_len: int, device: torch.device):
     """ Image tokens (of prefix_len) are in the prefix, which can self attend.
         Text tokens (of sequence_len) cannot attend to future tokens
     """
     total_length = prefix_len + sequence_len
     square_causal_mask = torch.triu(
         torch.ones(
-            total_length, total_length, device=device, dtype = torch.bool
+            total_length, total_length, device=device, dtype=torch.bool,
         ), diagonal=1,
     )
     square_causal_mask[0:prefix_len, 0:prefix_len] = 0
     # mask = torch.cat([torch.ones((prefix_len, prefix_len), device=device), square_causal_mask], dim=1)
     return square_causal_mask
 
-def make_src_key_padding_mask(prefix_len, attention_mask, device:torch.device):
+
+def make_src_key_padding_mask(prefix_len, attention_mask, device: torch.device):
     """
-    a binary mask of shape (N,S) indicating which elements within key to ignore for 
-    the purpose of attention (i.e. treat as “padding”). For unbatched query, 
-    shape should be (S). Binary and float masks are supported. For a binary 
-    mask, a True value indicates that the corresponding key value will be 
-    ignored for the purpose of attention. 
+    a binary mask of shape (N,S) indicating which elements within key to ignore for
+    the purpose of attention (i.e. treat as “padding”). For unbatched query,
+    shape should be (S). Binary and float masks are supported. For a binary
+    mask, a True value indicates that the corresponding key value will be
+    ignored for the purpose of attention.
 
     https://docs.pytorch.org/docs/stable/generated/torch.nn.MultiheadAttention.html
     """
     B, sequence_len = attention_mask.shape
     attention_mask = attention_mask.to(dtype=torch.bool)
-    zeros_to_prepend = torch.zeros((B, prefix_len), dtype=torch.bool, device=device)
+    zeros_to_prepend = torch.zeros(
+        (B, prefix_len), dtype=torch.bool, device=device,
+    )
     result = torch.cat((zeros_to_prepend, attention_mask), dim=1)
     return result
 
 
-def process_padding(x: torch.Tensor, target: int, replacement:int) -> torch.Tensor:
-    """ 
+def process_padding(x: torch.Tensor, target: int, replacement: int) -> torch.Tensor:
+    """
     Problem: Padding for the CLIP model is same as the <eos> token.
-    We replace all <eos> tokens (target) but the first one for each entry with 
+    We replace all <eos> tokens (target) but the first one for each entry with
         the replacement token, typically the <bos> token for simplicity.
-    
+
     We then set the loss function to ignore the <bos> token separately.
     """
     # target = 49407
@@ -90,7 +90,7 @@ def process_padding(x: torch.Tensor, target: int, replacement:int) -> torch.Tens
     return x_modified
 
 
-def collate_fn(batch: List[Tuple[torch.Tensor, str]]) -> Tuple[List[torch.Tensor], List[Dict]]:
+def collate_fn(batch: list[tuple[torch.Tensor, str]]) -> tuple[list[torch.Tensor], list[dict]]:
     xs = []
     ys = []
     for item in batch:
@@ -151,7 +151,7 @@ class ImageCaptioner(nn.Module):
         )
         nn.init.normal_(self.positional_encodings, std=0.02)
 
-    def forward(self, image_inputs: torch.Tensor, text_inputs: torch.Tensor, text_attention_mask= None) -> torch.Tensor:
+    def forward(self, image_inputs: torch.Tensor, text_inputs: torch.Tensor, text_attention_mask=None) -> torch.Tensor:
         """
         image_inputs (dict): key 'pixel_values' torch.Size([B, 3, 224, 224])
 
@@ -180,11 +180,15 @@ class ImageCaptioner(nn.Module):
         if text_attention_mask is None:
             src_key_padding_mask = None
         else:
-            src_key_padding_mask = make_src_key_padding_mask(N_image_tokens, 
-                                                1 - text_attention_mask, 
-                                                text_attention_mask.device)
-        res = self.decoder(res, mask=causal_mask, 
-            src_key_padding_mask=src_key_padding_mask)
+            src_key_padding_mask = make_src_key_padding_mask(
+                N_image_tokens,
+                1 - text_attention_mask,
+                text_attention_mask.device,
+            )
+        res = self.decoder(
+            res, mask=causal_mask,
+            src_key_padding_mask=src_key_padding_mask,
+        )
         # Return sequence tokens output and ignore the prefix
         out = self.language_head(res[:, N_image_tokens:])
         return out
@@ -202,12 +206,17 @@ class ImageCaptioner(nn.Module):
         )
         # Clip if longer than the longest sequence length possible
         if text_inputs.input_ids.shape[1] > self.text_seq_len_max:
-            input_ids = text_inputs['input_ids'][:,:self.text_seq_len_max].clone()
-            attention_mask = text_inputs['attention_mask'][:,:self.text_seq_len_max].clone()
-        else: 
+            input_ids = text_inputs['input_ids'][
+                :,
+                :self.text_seq_len_max,
+            ].clone()
+            attention_mask = text_inputs['attention_mask'][
+                :,
+                :self.text_seq_len_max,
+            ].clone()
+        else:
             input_ids = text_inputs['input_ids']
             attention_mask = text_inputs['attention_mask']
-
 
         return image_inputs['pixel_values'], input_ids, attention_mask
 
@@ -227,19 +236,35 @@ class ImageCaptioner(nn.Module):
         else:
             return self.text_model.token_embedding(text_inputs)
 
-
     def trainable_params(self):
         return filter(lambda p: p.requires_grad, self.parameters())
 
     def forward_sequential(self, x: torch.Tensor):
         # assert type(x) is torch.Tensor
-        generated = torch.tensor([[self.bos_id]], dtype=torch.int32, device=x.device)  
+        generated = torch.tensor(
+            [[self.bos_id]], dtype=torch.int32, device=x.device,
+        )
         for _ in range(self.text_seq_len_max - generated.size(1)):
-            test_scores = self.forward(x, generated)    # assume outputs.logits [1, T, V]
+            # assume outputs.logits [1, T, V]
+            test_scores = self.forward(x, generated)
             # 3) Greedy pick at last position
-            next_token = torch.argmax(test_scores[:, -1, :], dim=-1, keepdim=True)  # [1,1]
+            next_token = torch.argmax(
+                test_scores[:, -1, :], dim=-1, keepdim=True,
+            )  # [1,1]
             # 4) Append and check EOS
             generated = torch.cat([generated, next_token], dim=1)  # [1, T+1]
             if next_token.item() == self.eos_id:
                 break
-        return generated[0]
+        return generated
+
+
+def calculate_accuracy(scores, y, pad_token_id=None):
+    # scores: B, N, N_classes
+    # y: B, N
+    if pad_token_id is not None:
+        # Remove padding tokens from the target
+        mask = y != pad_token_id
+        scores = scores[mask]
+        y = y[mask]
+    correct = torch.sum(scores.argmax(dim=-1) == y)
+    return correct/y.numel(), correct
