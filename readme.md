@@ -56,6 +56,9 @@ sudo apt install npm
 npm install tailwindcss @tailwindcss/vite
 ```
 
+Hooks
+- Allow us to visualise intermediate activations
+
 ### Backend
 ```
 uvicorn main:app --reload
@@ -64,3 +67,5 @@ uvicorn main:app --reload
 ## References
 
 Mokady, Ron, Amir Hertz, and Amit H. Bermano. ‘ClipCap: CLIP Prefix for Image Captioning’. arXiv, 18 November 2021. https://doi.org/10.48550/arXiv.2111.09734.
+
+https://www.digitalocean.com/community/tutorials/pytorch-hooks-gradient-clipping-debugging

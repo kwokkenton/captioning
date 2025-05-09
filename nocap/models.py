@@ -104,7 +104,47 @@ def collate_fn(batch: list[tuple[torch.Tensor, str]]) -> tuple[list[torch.Tensor
         ys.append(item[1])
     return xs, ys
 
+class TransformerEncoderLayerWithAttn(nn.TransformerEncoderLayer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
+    def forward(self, src, src_mask=None, src_key_padding_mask=None):
+        # Extract attention weights
+        src2, attn_weights = self.self_attn(
+            src, src, src,
+            attn_mask=src_mask,
+            key_padding_mask=src_key_padding_mask,
+            need_weights=True,
+            average_attn_weights=False  # Needed to get per-head weights
+        )
+        src = src + self.dropout1(src2)
+        src = self.norm1(src)
+        src2 = self.linear2(self.dropout(self.activation(self.linear1(src))))
+        src = src + self.dropout2(src2)
+        src = self.norm2(src)
+        return src, attn_weights
+    
+class TransformerEncoderWithAttn(nn.TransformerEncoder):
+    def __init__(self, encoder_layer, num_layers):
+        super().__init__(encoder_layer, num_layers)
+    
+    def forward(self, src, mask=None, src_key_padding_mask=None, return_attn=True):
+        output = src
+        attn_weights_all = []
+
+        for mod in self.layers:
+            if return_attn:
+                mod.return_attn = True
+                output, attn_weights = mod(output, src_mask=mask, src_key_padding_mask=src_key_padding_mask)
+                attn_weights_all.append(attn_weights)
+            else:
+                mod.return_attn = False
+                output = mod(output, src_mask=mask, src_key_padding_mask=src_key_padding_mask)
+        
+        if return_attn:
+            return output, attn_weights_all
+        return output
+    
 class ImageCaptioner(nn.Module):
     def __init__(self, model_dict: dict, model_config: dict):
         super().__init__()
@@ -130,6 +170,8 @@ class ImageCaptioner(nn.Module):
         self.hidden_dim = model_config.get('hidden_dim')  # 512
         self.heads = model_config.get('num_heads')  # 8
         self.num_layers = model_config.get('num_layers')  # 6
+        self.show_attention = model_config.get('show_attention', False)  # 6
+
 
         # These are linked to CLIP
         self.text_seq_len_max = 77
@@ -143,12 +185,20 @@ class ImageCaptioner(nn.Module):
         # We use nn.TransformerEncoder as nn.TransformerDecoder expects cross
         # attention
         # https://www.reddit.com/r/MLQuestions/comments/102o11v/is_gpt_actually_using_the_encoder_not_the_decoder/
-        decoder_layer = nn.TransformerEncoderLayer(
-            d_model=self.hidden_dim,
-            nhead=self.heads,
-            batch_first=True,
-        )
-        self.decoder = nn.TransformerEncoder(decoder_layer, self.num_layers)
+        if self.show_attention: 
+            decoder_layer = TransformerEncoderLayerWithAttn(
+                d_model=self.hidden_dim,
+                nhead=self.heads,
+                batch_first=True,
+            )
+            self.decoder = TransformerEncoderWithAttn(decoder_layer, self.num_layers)
+        else: 
+            decoder_layer = nn.TransformerEncoderLayer(
+                d_model=self.hidden_dim,
+                nhead=self.heads,
+                batch_first=True,
+            )
+            self.decoder = nn.TransformerEncoder(decoder_layer, self.num_layers)
         self.language_head = nn.Linear(self.hidden_dim, self.vocab_size)
 
         # Positional encodings
@@ -191,13 +241,22 @@ class ImageCaptioner(nn.Module):
                 1 - text_attention_mask,
                 text_attention_mask.device,
             )
-        res = self.decoder(
+        if self.show_attention: 
+            res, attn_weights = self.decoder(
             res, mask=causal_mask,
             src_key_padding_mask=src_key_padding_mask,
         )
-        # Return sequence tokens output and ignore the prefix
-        out = self.language_head(res[:, N_image_tokens:])
-        return out
+            out = self.language_head(res[:, N_image_tokens:])
+            return out, attn_weights
+            
+        else: 
+            res = self.decoder(
+                res, mask=causal_mask,
+                src_key_padding_mask=src_key_padding_mask,
+            )
+            # Return sequence tokens output and ignore the prefix
+            out = self.language_head(res[:, N_image_tokens:])
+            return out
 
     def process_batch(self, image_inputs: list, text_inputs: list) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         # Returns dicts
