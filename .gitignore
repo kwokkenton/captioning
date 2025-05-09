@@ -4,3 +4,4 @@ nocap.egg-info
 wandb/*
 .DS_Store
 *.pth
+app/backend/node_modules
