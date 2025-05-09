@@ -5,6 +5,7 @@ import torch
 import wandb
 
 
+
 def get_wandb_checkpoint_path(artifact_name: str, run=None):
     if run is None:
         api = wandb.Api()

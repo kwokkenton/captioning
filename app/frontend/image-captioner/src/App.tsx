@@ -9,6 +9,9 @@ function App() {
   const [loading, setLoading] = useState<boolean>(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isWebcamMode, setIsWebcamMode] = useState<boolean>(false); // State to toggle between modes
+  const [attentionImages, setAttentionImages] = useState<
+  { token: string; attention_image: string }[]
+    >([]);
   // This is for the drag and drop ---------------------------------------------
 
   // Runs when a file is selected/ dropped
@@ -29,6 +32,7 @@ function App() {
       .then(res => res.json())
       .then((data: { caption: string }) => {
         setCaption(data.caption);
+        setAttentionImages(data.attention_images);
       })
       .catch(err => {
         console.error(err);
@@ -45,7 +49,7 @@ function App() {
 // -----------------------------------------------------------------------------
   return (
     <div className="min-h-screen min-w-screen bg-black-900 flex flex-col items-center justify-center p-4">
-      <h1 className="text-2xl font-bold mb-4 bg-gradient-to-r from-green-600 to-blue-300 text-transparent bg-clip-text">Image Captioner</h1>
+      <h1 className="text-2xl font-bold mb-4 bg-gradient-to-r from-green-600 to-blue-300 text-transparent bg-clip-text">Recurrent Rebels Image Captioner</h1>
       <div className="mb-4">
         {/* Toggle between webcam and file upload */}
         <button
@@ -81,6 +85,45 @@ function App() {
           <p className="text-gray-900">{caption}</p>
         </div>
       )}
+
+      {/* Render Attention Images */}
+      {/* {attentionImages.length > 0 && !loading && (
+        <div className="mt-4 space-y-4">
+          {attentionImages.map((item, index) => (
+            <div key={index} className="text-center">
+              <h3 className="text-lg font-semibold text-white-700">{item.token}</h3>
+              <img
+                src={`data:image/png;base64,${item.attention_image}`}
+                alt={`Attention map for token: ${item.token}`}
+                className="mx-auto rounded shadow"
+                style={{ width: '224px', height: '224px' }}
+              />
+            </div>
+          ))}
+        </div>
+      )} */}
+
+    {/* Horizontal Scrolling of Attention Images */}
+    <div>
+    {attentionImages.length > 0 && !loading && (
+      <div className="mt-4 w-[calc(100%-2rem)] overflow-x-auto flex space-x-4 px-4 py-2 max-w-full h-[300px]"> 
+        {/* Set a fixed height for the container */}
+        {attentionImages.map((item, index) => (
+          <div key={index} className="flex-shrink-0 w-56 text-center">
+            <h3 className="text-lg font-semibold text-white">{item.token}</h3>
+            <img
+              src={`data:image/png;base64,${item.attention_image}`}
+              alt={`Attention map for token: ${item.token}`}
+              className="mx-auto rounded-lg shadow-lg"
+              style={{ width: '224px', height: '224px' }} // Adjust based on your attention map size
+            />
+          </div>
+        ))}
+      </div>
+    )}
+    </div>
+ 
+
 
         {/* Add the SpeechSynthesis component here */}
         <SpeechSynthesis text={caption} />
