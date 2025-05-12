@@ -1,4 +1,4 @@
-name: venv
+name: captioning-env
 channels:
   - defaults
   - conda-forge
@@ -16,11 +16,11 @@ dependencies:
   - pre-commit
   - ipykernel
   - pip:
-    - wandb
-    - huggingface_hub[hf_xet]
-    - transformers
-    - torch
-    - torchvision
-    - fastapi
-    - uvicorn
-    - python-multipart
+      - wandb
+      - huggingface_hub[hf_xet]
+      - transformers
+      - torch
+      - torchvision
+      - fastapi
+      - uvicorn
+      - python-multipart

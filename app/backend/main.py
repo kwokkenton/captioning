@@ -44,7 +44,7 @@ async def caption_image(file: UploadFile = File(...)):
 
     caption, attn, tokens = captioner(image)
     logger.info(f'Caption: {tokens}')
-    attention_images = get_attention_maps(captioner.model, image, tokens, attn)
+    attention_images = get_attention_maps(captioner.model, image, tokens, attn, layer=1)
 
     return JSONResponse(content={'caption': caption, 
                                  'attention_images': attention_images, 

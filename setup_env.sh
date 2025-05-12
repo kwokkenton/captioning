@@ -14,7 +14,7 @@ conda env create --file environment.yml
 conda update -n base -c defaults conda
 
 # Update environment
-conda activate venv
+conda activate captioning-env
 
 # Login manually
 wandb login
